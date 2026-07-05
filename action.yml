@@ -1,0 +1,154 @@
+name: CCE cloud entitlements scan
+description: Install CCE and scan source for cloud SDK usage; optional diff gate for new entitlements.
+author: sks
+branding:
+  icon: shield
+  color: purple
+inputs:
+  version:
+    description: CCE release version (without a leading v), e.g. 0.0.5
+    required: false
+    default: "0.0.5"
+  folder:
+    description: Directory to scan
+    required: false
+    default: "."
+  language:
+    description: "Source language: GO, JAVA, AUTO, ..."
+    required: false
+    default: GO
+  filter:
+    description: "Entitlement filter: all or cloud"
+    required: false
+    default: cloud
+  format:
+    description: "Report format: json, text, or sarif"
+    required: false
+    default: json
+  output:
+    description: Path for the scan report file
+    required: false
+    default: cce-report.json
+  baseline:
+    description: Baseline JSON report for cce diff (skip diff when empty)
+    required: false
+    default: ""
+  fail-on-new:
+    description: Fail the step when diff finds new entitlements (requires baseline)
+    required: false
+    default: "true"
+  policy:
+    description: Optional YAML governance policy for cce diff
+    required: false
+    default: ""
+  diff-output:
+    description: Path for diff JSON output (only when baseline is set)
+    required: false
+    default: cce-diff.json
+  upload-artifact:
+    description: Upload the scan report (and diff, if any) as workflow artifacts
+    required: false
+    default: "true"
+  artifact-name:
+    description: Artifact name when upload-artifact is true
+    required: false
+    default: cce-entitlements
+outputs:
+  report-path:
+    description: Path to the generated entitlement report
+    value: ${{ steps.scan.outputs.report-path }}
+  entitlement-count:
+    description: Total entitlements in the scan report (json format only)
+    value: ${{ steps.scan.outputs.entitlement-count }}
+  diff-path:
+    description: Path to the diff report when baseline was provided
+    value: ${{ steps.diff.outputs.diff-path }}
+runs:
+  using: composite
+  steps:
+    - name: Install CCE
+      id: install
+      shell: bash
+      env:
+        CCE_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        INSTALL_DIR="${RUNNER_TEMP}/cce"
+        mkdir -p "${INSTALL_DIR}"
+        ARCH="$(uname -m)"
+        case "${ARCH}" in
+          x86_64) ARCH="amd64" ;;
+          aarch64|arm64) ARCH="arm64" ;;
+          *)
+            echo "::error::Unsupported runner architecture: ${ARCH}"
+            exit 1
+            ;;
+        esac
+        TARBALL="cce_${CCE_VERSION}_linux_${ARCH}.tar.gz"
+        URL="https://releases.stackgen.com/binaries/cce/v${CCE_VERSION}/${TARBALL}"
+        echo "Downloading CCE ${CCE_VERSION} from ${URL}"
+        curl -fsSL "${URL}" -o "${RUNNER_TEMP}/${TARBALL}"
+        tar -xzf "${RUNNER_TEMP}/${TARBALL}" -C "${INSTALL_DIR}"
+        chmod +x "${INSTALL_DIR}/cce"
+        "${INSTALL_DIR}/cce" -version || true
+        echo "${INSTALL_DIR}" >> "${GITHUB_PATH}"
+
+    - name: Scan entitlements
+      id: scan
+      shell: bash
+      env:
+        CCE_FOLDER: ${{ inputs.folder }}
+        CCE_LANGUAGE: ${{ inputs.language }}
+        CCE_FILTER: ${{ inputs.filter }}
+        CCE_FORMAT: ${{ inputs.format }}
+        CCE_OUTPUT: ${{ inputs.output }}
+      run: |
+        set -euo pipefail
+        cce -folder "${CCE_FOLDER}" \
+          -language "${CCE_LANGUAGE}" \
+          -filter "${CCE_FILTER}" \
+          -format "${CCE_FORMAT}" \
+          -output "${CCE_OUTPUT}"
+        echo "report-path=${CCE_OUTPUT}" >> "${GITHUB_OUTPUT}"
+        if [ "${CCE_FORMAT}" = "json" ] && command -v jq >/dev/null 2>&1; then
+          COUNT="$(jq -r '.summary.total_entitlements // 0' "${CCE_OUTPUT}")"
+          echo "entitlement-count=${COUNT}" >> "${GITHUB_OUTPUT}"
+          echo "Entitlements found: ${COUNT}"
+        fi
+
+    - name: Diff against baseline
+      id: diff
+      if: inputs.baseline != ''
+      shell: bash
+      env:
+        CCE_BASELINE: ${{ inputs.baseline }}
+        CCE_CURRENT: ${{ inputs.output }}
+        CCE_FAIL_ON_NEW: ${{ inputs.fail-on-new }}
+        CCE_POLICY: ${{ inputs.policy }}
+        CCE_DIFF_OUTPUT: ${{ inputs.diff-output }}
+      run: |
+        set -euo pipefail
+        ARGS=(diff "${CCE_BASELINE}" "${CCE_CURRENT}" -output "${CCE_DIFF_OUTPUT}")
+        if [ -n "${CCE_POLICY}" ]; then
+          ARGS+=(-policy "${CCE_POLICY}")
+        fi
+        if [ "${CCE_FAIL_ON_NEW}" = "true" ]; then
+          ARGS+=(--fail-new)
+        fi
+        cce "${ARGS[@]}"
+        echo "diff-path=${CCE_DIFF_OUTPUT}" >> "${GITHUB_OUTPUT}"
+
+    - name: Upload scan report
+      if: inputs.upload-artifact == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ inputs.output }}
+
+    - name: Upload diff report
+      if: inputs.upload-artifact == 'true' && inputs.baseline != ''
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}-diff
+        path: ${{ inputs.diff-output }}
+        if-no-files-found: ignore

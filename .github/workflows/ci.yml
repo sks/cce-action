@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  external-dns:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone external-dns AWS provider
+        run: |
+          git clone --depth 1 https://github.com/kubernetes-sigs/external-dns.git /tmp/external-dns
+
+      - uses: ./
+        with:
+          folder: /tmp/external-dns/provider/aws
+          language: GO
+          filter: cloud
+          output: external-dns.json
+
+      - name: Assert Route 53 entitlements exist
+        run: |
+          jq -e '.summary.total_entitlements > 0' external-dns.json
+          jq -e '[.entitlements[].resource] | any(. == "route53")' external-dns.json
+
+      - name: Diff gate smoke (same tree → no new entitlements)
+        uses: ./
+        with:
+          folder: /tmp/external-dns/provider/aws
+          language: GO
+          output: external-dns-again.json
+          baseline: external-dns.json
+          fail-on-new: true
+          upload-artifact: false

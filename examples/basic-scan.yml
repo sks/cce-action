@@ -1,0 +1,19 @@
+# Copy into .github/workflows/cce-scan.yml
+name: CCE scan
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  entitlements:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: sks/cce-action@v1
+        with:
+          folder: .
+          language: GO
+          filter: cloud

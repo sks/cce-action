@@ -1,0 +1,34 @@
+# Copy into .github/workflows/cce-pr-gate.yml
+# Fails the build when a PR introduces new cloud API usage.
+name: CCE PR gate
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  entitlements:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: baseline-tree
+
+      - uses: sks/cce-action@v1
+        with:
+          folder: baseline-tree/provider/aws
+          language: GO
+          output: baseline.json
+          upload-artifact: false
+
+      - uses: actions/checkout@v4
+
+      - uses: sks/cce-action@v1
+        with:
+          folder: provider/aws
+          language: GO
+          output: pr.json
+          baseline: baseline.json
+          fail-on-new: true
+          artifact-name: cce-pr-${{ github.event.pull_request.number }}
