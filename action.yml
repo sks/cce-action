@@ -1,5 +1,5 @@
 name: CCE cloud entitlements scan
-description: Install CCE and scan source for cloud SDK usage; optional diff gate for new entitlements.
+description: Install CCE and scan with built-in or custom lenses; run recipe packs; optional diff gate.
 author: sks
 branding:
   icon: shield
@@ -9,6 +9,10 @@ inputs:
     description: CCE release version (without a leading v), e.g. 0.0.5
     required: false
     default: "0.0.5"
+  mode:
+    description: "scan (default cce scan) or run (cce run -pack / -recipes)"
+    required: false
+    default: scan
   folder:
     description: Directory to scan
     required: false
@@ -18,13 +22,37 @@ inputs:
     required: false
     default: GO
   filter:
-    description: "Entitlement filter: all or cloud"
+    description: "Entitlement filter for scan mode: all or cloud"
     required: false
     default: cloud
   format:
-    description: "Report format: json, text, or sarif"
+    description: "Report format for scan mode: json, text, or sarif"
     required: false
     default: json
+  mapper-file:
+    description: "Scan mode — custom lens YAML path or HTTPS URL (-mapper-file)"
+    required: false
+    default: ""
+  pack:
+    description: "Run mode — recipe pack id (e.g. modernization-pack)"
+    required: false
+    default: ""
+  recipes:
+    description: "Run mode — comma-separated recipe ids (alternative to pack)"
+    required: false
+    default: ""
+  remote:
+    description: "Run mode — load catalog from releases.stackgen.com (-remote)"
+    required: false
+    default: "false"
+  catalog-url:
+    description: "Run mode — override catalog.json URL (enterprise self-host)"
+    required: false
+    default: ""
+  packs-url:
+    description: "Run mode — override packs.json URL (enterprise self-host)"
+    required: false
+    default: ""
   output:
     description: Path for the scan report file
     required: false
@@ -93,24 +121,56 @@ runs:
         "${INSTALL_DIR}/cce" -version || true
         echo "${INSTALL_DIR}" >> "${GITHUB_PATH}"
 
-    - name: Scan entitlements
+    - name: Scan or run recipes
       id: scan
       shell: bash
       env:
+        CCE_MODE: ${{ inputs.mode }}
         CCE_FOLDER: ${{ inputs.folder }}
         CCE_LANGUAGE: ${{ inputs.language }}
         CCE_FILTER: ${{ inputs.filter }}
         CCE_FORMAT: ${{ inputs.format }}
+        CCE_MAPPER_FILE: ${{ inputs.mapper-file }}
+        CCE_PACK: ${{ inputs.pack }}
+        CCE_RECIPES: ${{ inputs.recipes }}
+        CCE_REMOTE: ${{ inputs.remote }}
+        CCE_CATALOG_URL: ${{ inputs.catalog-url }}
+        CCE_PACKS_URL: ${{ inputs.packs-url }}
         CCE_OUTPUT: ${{ inputs.output }}
       run: |
         set -euo pipefail
-        cce -folder "${CCE_FOLDER}" \
-          -language "${CCE_LANGUAGE}" \
-          -filter "${CCE_FILTER}" \
-          -format "${CCE_FORMAT}" \
-          -output "${CCE_OUTPUT}"
+        if [ "${CCE_MODE}" = "run" ]; then
+          if [ -z "${CCE_PACK}" ] && [ -z "${CCE_RECIPES}" ]; then
+            echo "::error::mode=run requires pack or recipes input"
+            exit 1
+          fi
+          ARGS=(run -folder "${CCE_FOLDER}" -language "${CCE_LANGUAGE}" -output "${CCE_OUTPUT}")
+          if [ -n "${CCE_PACK}" ]; then
+            ARGS+=(-pack "${CCE_PACK}")
+          fi
+          if [ -n "${CCE_RECIPES}" ]; then
+            ARGS+=(-recipes "${CCE_RECIPES}")
+          fi
+          if [ "${CCE_REMOTE}" = "true" ]; then
+            ARGS+=(-remote)
+          fi
+          if [ -n "${CCE_CATALOG_URL}" ]; then
+            ARGS+=(-catalog-url "${CCE_CATALOG_URL}")
+          fi
+          if [ -n "${CCE_PACKS_URL}" ]; then
+            ARGS+=(-packs-url "${CCE_PACKS_URL}")
+          fi
+          cce "${ARGS[@]}"
+        else
+          ARGS=(-folder "${CCE_FOLDER}" -language "${CCE_LANGUAGE}" \
+            -filter "${CCE_FILTER}" -format "${CCE_FORMAT}" -output "${CCE_OUTPUT}")
+          if [ -n "${CCE_MAPPER_FILE}" ]; then
+            ARGS+=(-mapper-file "${CCE_MAPPER_FILE}")
+          fi
+          cce "${ARGS[@]}"
+        fi
         echo "report-path=${CCE_OUTPUT}" >> "${GITHUB_OUTPUT}"
-        if [ "${CCE_FORMAT}" = "json" ] && command -v jq >/dev/null 2>&1; then
+        if command -v jq >/dev/null 2>&1 && [ -f "${CCE_OUTPUT}" ]; then
           COUNT="$(jq -r '.summary.total_entitlements // 0' "${CCE_OUTPUT}")"
           echo "entitlement-count=${COUNT}" >> "${GITHUB_OUTPUT}"
           echo "Entitlements found: ${COUNT}"

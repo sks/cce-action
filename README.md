@@ -80,10 +80,17 @@ See [examples/pr-diff-gate.yml](examples/pr-diff-gate.yml) for a complete workfl
 | Input | Default | Description |
 |-------|---------|-------------|
 | `version` | `0.0.5` | CCE release (no leading `v`) |
+| `mode` | `scan` | `scan` or `run` (`cce run -pack` / `-recipes`) |
 | `folder` | `.` | Directory to scan |
 | `language` | `GO` | `GO`, `JAVA`, `AUTO`, … |
-| `filter` | `cloud` | `cloud` or `all` |
-| `format` | `json` | `json`, `text`, or `sarif` |
+| `filter` | `cloud` | `cloud` or `all` (scan mode; use `all` for custom lens providers) |
+| `format` | `json` | `json`, `text`, or `sarif` (scan mode) |
+| `mapper-file` | *(empty)* | Lens YAML path or HTTPS URL (scan mode) |
+| `pack` | *(empty)* | Recipe pack id (run mode) |
+| `recipes` | *(empty)* | Comma-separated recipe ids (run mode, alternative to `pack`) |
+| `remote` | `false` | Fetch catalog from releases.stackgen.com (run mode) |
+| `catalog-url` | *(empty)* | Override `catalog.json` URL (run mode, enterprise) |
+| `packs-url` | *(empty)* | Override `packs.json` URL (run mode, enterprise) |
 | `output` | `cce-report.json` | Report file path |
 | `baseline` | *(empty)* | Baseline JSON for `cce diff` |
 | `fail-on-new` | `true` | Fail when diff finds new entitlements |
@@ -110,8 +117,61 @@ jq -r '.entitlements[]
 
 Wire the action list into Terraform, IRSA, or your policy generator. Resource ARNs stay in IaC.
 
+## Custom lenses (Path A)
+
+Point at a lens YAML in your repo or on internal HTTPS — same as `-mapper-file` in the [enterprise lenses guide](https://github.com/appcd-dev/cce/blob/main/docs/guides/enterprise-lenses-and-catalogs.md):
+
+```yaml
+- uses: sks/cce-action@v1
+  with:
+    folder: .
+    language: AUTO
+    filter: all          # required for PLATFORM / TECH_DEBT / FORBIDDEN providers
+    mapper-file: https://artifacts.corp.example/cce/lenses/idp/v1.2.0/idp_lenses.yaml
+    output: idp-inventory.json
+```
+
+Your lens runs **first**; built-in cloud rules fill gaps when the lens does not match. Pin versioned URLs in CI (`/v1.2.0/`, not only `latest`).
+
+See [examples/custom-lens.yml](examples/custom-lens.yml).
+
+## Recipe packs and catalogs (Path B)
+
+Run multiple recipes in **one parse** via `cce run -pack` or `-recipes`:
+
+```yaml
+# Public StackGen catalog
+- uses: sks/cce-action@v1
+  with:
+    mode: run
+    pack: modernization-pack
+    remote: true
+    output: modernization.json
+```
+
+```yaml
+# Self-hosted enterprise catalog
+- uses: sks/cce-action@v1
+  with:
+    mode: run
+    pack: corp-platform-pack
+    catalog-url: https://artifacts.corp.example/cce/recipes/latest/catalog.json
+    packs-url: https://artifacts.corp.example/cce/recipes/latest/packs.json
+    output: platform.json
+```
+
+| `mode` | When to use |
+|--------|-------------|
+| `scan` (default) | Built-in cloud mapping, optional `-mapper-file` lens |
+| `run` | Catalog recipes / packs — cloud + IDP inventory merged |
+
+Combine either mode with `baseline` + `policy` + `fail-on-new` to gate forbidden internal libraries or new cloud APIs.
+
+See [examples/enterprise-pack.yml](examples/enterprise-pack.yml) and [examples/public-modernization-pack.yml](examples/public-modernization-pack.yml).
+
 ## Related
 
+- [Enterprise lenses and catalogs](https://github.com/appcd-dev/cce/blob/main/docs/guides/enterprise-lenses-and-catalogs.md)
 - [CCE docs](https://appcd-dev.github.io/cce/)
 - [Homebrew install](https://github.com/stackgenhq/homebrew-stackgen)
 - [Blog walkthrough (external-dns)](https://sks.github.io/blog/cce-cloud-entitlements/)

@@ -36,3 +36,44 @@ jobs:
           baseline: external-dns.json
           fail-on-new: true
           upload-artifact: false
+
+  modernization-pack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone external-dns AWS provider
+        run: |
+          git clone --depth 1 https://github.com/kubernetes-sigs/external-dns.git /tmp/external-dns
+
+      - uses: actions/checkout@v4
+
+      - uses: ./
+        with:
+          mode: run
+          folder: /tmp/external-dns/provider/aws
+          language: GO
+          pack: modernization-pack
+          remote: true
+          output: modernization.json
+
+      - name: Assert merged pack report
+        run: jq -e '.summary.total_entitlements > 0' modernization.json
+
+  custom-lens-url:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone external-dns AWS provider
+        run: |
+          git clone --depth 1 https://github.com/kubernetes-sigs/external-dns.git /tmp/external-dns
+
+      - uses: actions/checkout@v4
+
+      - uses: ./
+        with:
+          folder: /tmp/external-dns/provider/aws
+          language: GO
+          filter: all
+          mapper-file: https://releases.stackgen.com/cce/lenses/tech-debt-inventory/latest/tech-debt-inventory_lenses.yaml
+          output: lens-scan.json
+
+      - name: Assert scan completed with cloud rows
+        run: jq -e '.summary.total_entitlements > 0' lens-scan.json

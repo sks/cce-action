@@ -1,0 +1,23 @@
+# Path B — self-hosted catalog + pack (parse once, multiple recipes merged).
+name: CCE enterprise pack
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  platform-governance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: sks/cce-action@v1
+        with:
+          mode: run
+          folder: .
+          language: AUTO
+          pack: corp-platform-pack
+          catalog-url: https://artifacts.corp.example/cce/recipes/latest/catalog.json
+          packs-url: https://artifacts.corp.example/cce/recipes/latest/packs.json
+          output: platform.json

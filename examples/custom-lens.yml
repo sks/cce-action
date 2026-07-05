@@ -1,0 +1,34 @@
+# Path A — custom lens only (no catalog hosting required).
+# Pin a versioned lens URL in CI; use filter: all for PLATFORM / TECH_DEBT providers.
+name: CCE custom lens
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  idp-inventory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: sks/cce-action@v1
+        with:
+          folder: .
+          language: AUTO
+          filter: all
+          mapper-file: https://artifacts.corp.example/cce/lenses/idp/v1.2.0/idp_lenses.yaml
+          output: idp-inventory.json
+
+      # Optional: fail when forbidden packages appear (diff + policy YAML in your repo)
+      # - uses: sks/cce-action@v1
+      #   with:
+      #     folder: .
+      #     language: AUTO
+      #     filter: all
+      #     mapper-file: https://artifacts.corp.example/cce/lenses/idp/v1.2.0/idp_lenses.yaml
+      #     output: pr.json
+      #     baseline: baseline.json
+      #     policy: .cce/policies/forbidden-libs.yaml
+      #     fail-on-new: true

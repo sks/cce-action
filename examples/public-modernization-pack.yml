@@ -1,0 +1,20 @@
+# Public StackGen catalog — cloud entitlements + SDK uplift + tech-debt in one parse.
+name: CCE modernization pack
+
+on:
+  pull_request:
+
+jobs:
+  modernization:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: sks/cce-action@v1
+        with:
+          mode: run
+          folder: .
+          language: AUTO
+          pack: modernization-pack
+          remote: true
+          output: modernization.json
