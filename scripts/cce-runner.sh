@@ -15,7 +15,7 @@ cce_install() {
   image="$(cce_image)"
   echo "Pulling CCE container ${image}"
   docker pull "${image}"
-  docker run --rm --user "$(id -u):$(id -g)" "${image}" -version || true
+  docker run --rm --user "$(id -u):$(id -g)" "${image}" -version
 }
 
 cce_abs_path() {
