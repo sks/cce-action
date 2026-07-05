@@ -13,7 +13,7 @@ Drop it into any workflow — same pattern as `actions/checkout`:
 
 CCE maps SDK call sites to `(provider, resource, operation)` tuples so you can derive IAM actions, audit cloud surface, and gate PRs that add new permissions.
 
-Binaries are downloaded from [releases.stackgen.com](https://releases.stackgen.com/binaries/cce/) (default version `0.0.5`).
+Runs CCE from the published container image [`ghcr.io/stackgenhq/cce`](https://github.com/stackgenhq/homebrew-stackgen/pkgs/container/cce) (default tag `0.0.5`). No tarball downloads.
 
 ## Quick start
 
@@ -38,7 +38,7 @@ jobs:
           filter: cloud
 ```
 
-The step installs CCE, runs a scan, uploads `cce-report.json` as an artifact, and sets `entitlement-count` output.
+The step pulls `ghcr.io/stackgenhq/cce`, runs a scan, uploads `cce-report.json` as an artifact, and sets `entitlement-count` output.
 
 ## PR gate: fail on new entitlements
 
@@ -79,7 +79,8 @@ See [examples/pr-diff-gate.yml](examples/pr-diff-gate.yml) for a complete workfl
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `version` | `0.0.5` | CCE release (no leading `v`) |
+| `version` | `0.0.5` | Image tag for `ghcr.io/stackgenhq/cce` |
+| `image` | *(auto)* | Full image ref (overrides `version`) |
 | `mode` | `scan` | `scan` or `run` (`cce run -pack` / `-recipes`) |
 | `folder` | `.` | Directory to scan |
 | `language` | `GO` | `GO`, `JAVA`, `AUTO`, … |
@@ -169,10 +170,33 @@ Combine either mode with `baseline` + `policy` + `fail-on-new` to gate forbidden
 
 See [examples/enterprise-pack.yml](examples/enterprise-pack.yml) and [examples/public-modernization-pack.yml](examples/public-modernization-pack.yml).
 
+## Container image reference
+
+The action uses:
+
+```text
+docker pull ghcr.io/stackgenhq/cce:0.0.5
+# or
+docker pull ghcr.io/stackgenhq/cce:latest
+```
+
+Override in workflows:
+
+```yaml
+- uses: sks/cce-action@v1.2.0
+  with:
+    version: latest
+    # or pin an explicit ref:
+    # image: ghcr.io/stackgenhq/cce@sha256:02520efc4071dd7a0940fbbefd77def2cc3f069c84cf5e0ea498f6aea64f254f
+```
+
+To run CCE as the job container (no composite action), see [examples/docker-container-job.yml](examples/docker-container-job.yml).
+
 ## Related
 
 - [Enterprise lenses and catalogs](https://github.com/appcd-dev/cce/blob/main/docs/guides/enterprise-lenses-and-catalogs.md)
 - [CCE docs](https://appcd-dev.github.io/cce/)
+- [CCE container package](https://github.com/stackgenhq/homebrew-stackgen/pkgs/container/cce)
 - [Homebrew install](https://github.com/stackgenhq/homebrew-stackgen)
 - [Blog walkthrough (external-dns)](https://sks.github.io/blog/cce-cloud-entitlements/)
 

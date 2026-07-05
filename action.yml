@@ -1,14 +1,18 @@
 name: CCE cloud entitlements scan
-description: Install CCE and scan with built-in or custom lenses; run recipe packs; optional diff gate.
+description: Run CCE from ghcr.io/stackgenhq/cce — scan, custom lenses, recipe packs, optional diff gate.
 author: sks
 branding:
   icon: shield
   color: purple
 inputs:
   version:
-    description: CCE release version (without a leading v), e.g. 0.0.5
+    description: CCE image tag (without a leading v), e.g. 0.0.5 or latest
     required: false
     default: "0.0.5"
+  image:
+    description: "Full container image reference (overrides version), e.g. ghcr.io/stackgenhq/cce:0.0.5"
+    required: false
+    default: ""
   mode:
     description: "scan (default cce scan) or run (cce run -pack / -recipes)"
     required: false
@@ -94,37 +98,24 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Install CCE
+    - name: Pull CCE container
       id: install
       shell: bash
       env:
         CCE_VERSION: ${{ inputs.version }}
+        CCE_IMAGE: ${{ inputs.image }}
       run: |
         set -euo pipefail
-        INSTALL_DIR="${RUNNER_TEMP}/cce"
-        mkdir -p "${INSTALL_DIR}"
-        ARCH="$(uname -m)"
-        case "${ARCH}" in
-          x86_64) ARCH="amd64" ;;
-          aarch64|arm64) ARCH="arm64" ;;
-          *)
-            echo "::error::Unsupported runner architecture: ${ARCH}"
-            exit 1
-            ;;
-        esac
-        TARBALL="cce_${CCE_VERSION}_linux_${ARCH}.tar.gz"
-        URL="https://releases.stackgen.com/binaries/cce/v${CCE_VERSION}/${TARBALL}"
-        echo "Downloading CCE ${CCE_VERSION} from ${URL}"
-        curl -fsSL "${URL}" -o "${RUNNER_TEMP}/${TARBALL}"
-        tar -xzf "${RUNNER_TEMP}/${TARBALL}" -C "${INSTALL_DIR}"
-        chmod +x "${INSTALL_DIR}/cce"
-        "${INSTALL_DIR}/cce" -version || true
-        echo "${INSTALL_DIR}" >> "${GITHUB_PATH}"
+        # shellcheck source=scripts/cce-runner.sh
+        source "${{ github.action_path }}/scripts/cce-runner.sh"
+        cce_install
 
     - name: Scan or run recipes
       id: scan
       shell: bash
       env:
+        CCE_VERSION: ${{ inputs.version }}
+        CCE_IMAGE: ${{ inputs.image }}
         CCE_MODE: ${{ inputs.mode }}
         CCE_FOLDER: ${{ inputs.folder }}
         CCE_LANGUAGE: ${{ inputs.language }}
@@ -139,6 +130,8 @@ runs:
         CCE_OUTPUT: ${{ inputs.output }}
       run: |
         set -euo pipefail
+        source "${{ github.action_path }}/scripts/cce-runner.sh"
+
         if [ "${CCE_MODE}" = "run" ]; then
           if [ -z "${CCE_PACK}" ] && [ -z "${CCE_RECIPES}" ]; then
             echo "::error::mode=run requires pack or recipes input"
@@ -160,15 +153,16 @@ runs:
           if [ -n "${CCE_PACKS_URL}" ]; then
             ARGS+=(-packs-url "${CCE_PACKS_URL}")
           fi
-          cce "${ARGS[@]}"
+          cce_invoke "${ARGS[@]}"
         else
           ARGS=(-folder "${CCE_FOLDER}" -language "${CCE_LANGUAGE}" \
             -filter "${CCE_FILTER}" -format "${CCE_FORMAT}" -output "${CCE_OUTPUT}")
           if [ -n "${CCE_MAPPER_FILE}" ]; then
             ARGS+=(-mapper-file "${CCE_MAPPER_FILE}")
           fi
-          cce "${ARGS[@]}"
+          cce_invoke "${ARGS[@]}"
         fi
+
         echo "report-path=${CCE_OUTPUT}" >> "${GITHUB_OUTPUT}"
         if command -v jq >/dev/null 2>&1 && [ -f "${CCE_OUTPUT}" ]; then
           COUNT="$(jq -r '.summary.total_entitlements // 0' "${CCE_OUTPUT}")"
@@ -181,6 +175,8 @@ runs:
       if: inputs.baseline != ''
       shell: bash
       env:
+        CCE_VERSION: ${{ inputs.version }}
+        CCE_IMAGE: ${{ inputs.image }}
         CCE_BASELINE: ${{ inputs.baseline }}
         CCE_CURRENT: ${{ inputs.output }}
         CCE_FAIL_ON_NEW: ${{ inputs.fail-on-new }}
@@ -188,6 +184,7 @@ runs:
         CCE_DIFF_OUTPUT: ${{ inputs.diff-output }}
       run: |
         set -euo pipefail
+        source "${{ github.action_path }}/scripts/cce-runner.sh"
         ARGS=(diff "${CCE_BASELINE}" "${CCE_CURRENT}" -output "${CCE_DIFF_OUTPUT}")
         if [ -n "${CCE_POLICY}" ]; then
           ARGS+=(-policy "${CCE_POLICY}")
@@ -195,7 +192,7 @@ runs:
         if [ "${CCE_FAIL_ON_NEW}" = "true" ]; then
           ARGS+=(--fail-new)
         fi
-        cce "${ARGS[@]}"
+        cce_invoke "${ARGS[@]}"
         echo "diff-path=${CCE_DIFF_OUTPUT}" >> "${GITHUB_OUTPUT}"
 
     - name: Upload scan report

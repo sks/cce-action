@@ -1,0 +1,24 @@
+# Copy into .github/workflows/cce-container.yml
+# Run CCE directly without the composite action (same image the action uses).
+name: CCE container scan
+
+on:
+  pull_request:
+
+jobs:
+  entitlements:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/stackgenhq/cce:0.0.5
+      options: --user root
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scan cloud SDK usage
+        run: |
+          cce -folder . -language GO -filter cloud -format json -output cce-report.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cce-entitlements
+          path: cce-report.json
